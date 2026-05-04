@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google I/O 2026: Code the Countdown (Optimized)</title>
+    <style>
+        /* CSS Reset & Setup */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            /* Deep Cyberpunk Space Background */
+            background-color: #050508;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            touch-action: none; /* Prevent scroll on touch devices */
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Minimalist UI Overlay */
+        .ui-overlay {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 0.85rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            pointer-events: none; /* Let mouse events pass through to canvas */
+            user-select: none;
+            animation: pulse 4s infinite alternate;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.2; }
+            100% { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="scene"></canvas>
+    <div class="ui-overlay">Press any key or click to countdown</div>
+
+    <script>
+        /**
+         * GLOBAL CONFIGURATION & TUNING
+         */
+        // --- PERFORMANCE INJECTION: REDUCED DENSITY ---
+        // Increased from 7 to 10. Significantly lowers particle count.
+        const PARTICLE_SAMPLING_STEP = 10; 
+        // ----------------------------------------------
+        
+        // Physics constants
+        const SPRING_FACTOR = 0.04;     
+        const FRICTION_FACTOR = 0.88;   
+        const REPULSION_RADIUS = 120;   
+        const REPULSION_FORCE = 8;      
+
+        // Removing TRAIL_FADE_COLOR as motion blur is deleted for performance.
+
+        /**
+         * SETUP & INITIALIZATION
+         */
+        const canvas = document.getElementById('scene');
+        const ctx = canvas.getContext('2d', { alpha: false }); 
+        
+        let width, height;
+        let particles = [];
+        let currentNumber = 10; 
+        
+        // PROCEDURAL AUDIO ENGINE (Unchanged per instructions)
+        class ParticleAudioEngine {
+            constructor() {
+                this.audioCtx = null;
+                this.oscillator = null;
+                this.filter = null;
+                this.gainNode = null;
+                this.isInitialized = false;
+            }
+
+            start() {
+                if (this.isInitialized) return;
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                this.audioCtx = new AudioContext();
+                this.oscillator = this.audioCtx.createOscillator();
+                this.oscillator.type = 'triangle';
+                this.oscillator.frequency.value = 110;
+                this.filter = this.audioCtx.createBiquadFilter();
+                this.filter.type = 'lowpass';
+                this.filter.frequency.value = 200; 
+                this.gainNode = this.audioCtx.createGain();
+                this.gainNode.gain.value = 0; 
+                this.oscillator.connect(this.filter);
+                this.filter.connect(this.gainNode);
+                this.gainNode.connect(this.audioCtx.destination);
+                this.oscillator.start();
+                this.isInitialized = true;
+            }
+
+            update(energy) {
+                if (!this.isInitialized) return;
+                const now = this.audioCtx.currentTime;
+                this.gainNode.gain.setTargetAtTime(energy * 0.25, now, 0.1);
+                this.filter.frequency.setTargetAtTime(200 + (energy * 2800), now, 0.1);
+            }
+        }
+        
+        const audioEngine = new ParticleAudioEngine();
+
+        // Mouse/Touch tracking
+        const pointer = {
+            x: -1000, 
+            y: -1000,
+            radius: REPULSION_RADIUS,
+            // --- PERFORMANCE INJECTION: PRECALCULATED SQUARED RADIUS ---
+            radiusSq: REPULSION_RADIUS * REPULSION_RADIUS,
+            isActive: false
+        };
+
+        /**
+         * PARTICLE CLASS
+         */
+        class Particle {
+            constructor(targetX, targetY) {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.vx = 0;
+                this.vy = 0;
+                
+                // --- PERFORMANCE INJECTION: STATIC COLOR ---
+                // Pre-calculate flat color once instead of string interpolation every frame.
+                const hue = Math.floor(Math.random() * 40) + 180;
+                this.color = `hsl(${hue}, 100%, 60%)`;
+                this.size = Math.random() * 1.5 + 0.5;
+            }
+
+            update() {
+                // 1. MOUSE REPULSION FORCE (Interaction logic)
+                if (pointer.isActive) {
+                    const dx = pointer.x - this.x;
+                    const dy = pointer.y - this.y;
+                    
+                    // --- PERFORMANCE INJECTION: SQUARED DISTANCE CHECK ---
+                    // Avoid Math.sqrt() for the 99% of particles not near the mouse
+                    const distSq = dx * dx + dy * dy;
+
+                    if (distSq < pointer.radiusSq) {
+                        // Only calculate expensive square root if particle is inside interaction radius
+                        const distance = Math.sqrt(distSq);
+                        
+                        // Linear falloff: stronger force when closer to the mouse
+                        const forceDirectionX = dx / distance;
+                        const forceDirectionY = dy / distance;
+                        const forceFactor = (pointer.radius - distance) / pointer.radius;
+                        
+                        this.vx -= forceDirectionX * forceFactor * REPULSION_FORCE;
+                        this.vy -= forceDirectionY * forceFactor * REPULSION_FORCE;
+                    }
+                }
+
+                // 2. SPRING FORCE (Anchor logic)
+                const dxTarget = this.targetX - this.x;
+                const dyTarget = this.targetY - this.y;
+                this.vx += dxTarget * SPRING_FACTOR;
+                this.vy += dyTarget * SPRING_FACTOR;
+
+                // 3. FRICTION (Damping logic)
+                this.vx *= FRICTION_FACTOR;
+                this.vy *= FRICTION_FACTOR;
+
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+
+            draw() {
+                // --- PERFORMANCE INJECTION: DESTROYED EXPENSIVE VISUALS ---
+                // Removed Math.sqrt velocity checks.
+                // Removed string interpolation.
+                // Removed ctx.shadowBlur and ctx.shadowColor completely.
+                
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        /**
+         * THE ANCHOR SYSTEM (Text to Particles)
+         */
+        function updateSwarm(text) {
+            // Check if dimensions are valid to prevent IndexSizeError
+            if (width <= 0 || height <= 0) return;
+
+            const osCanvas = document.createElement('canvas');
+            const osCtx = osCanvas.getContext('2d');
+            osCanvas.width = width;
+            osCanvas.height = height;
+
+            let fontSize = Math.min(width, height) * 0.8;
+            osCtx.font = `bold ${fontSize}px sans-serif`;
+            
+            const maxTextWidth = width * 0.9; 
+            let textMetrics = osCtx.measureText(text);
+            
+            if (textMetrics.width > maxTextWidth) {
+                const scalingFactor = maxTextWidth / textMetrics.width;
+                fontSize = fontSize * scalingFactor;
+                osCtx.font = `bold ${fontSize}px sans-serif`; 
+            }
+
+            osCtx.fillStyle = 'white';
+            osCtx.textAlign = 'center';
+            osCtx.textBaseline = 'middle';
+            osCtx.fillText(text, width / 2, height / 2);
+
+            const imageData = osCtx.getImageData(0, 0, width, height);
+            const data = imageData.data;
+            const newTargets = [];
+
+            for (let y = 0; y < height; y += PARTICLE_SAMPLING_STEP) {
+                for (let x = 0; x < width; x += PARTICLE_SAMPLING_STEP) {
+                    const index = (y * width + x) * 4;
+                    const alpha = data[index + 3];
+
+                    if (alpha > 128) {
+                        newTargets.push({x, y});
+                    }
+                }
+            }
+
+            for (let i = 0; i < newTargets.length; i++) {
+                if (particles[i]) {
+                    particles[i].targetX = newTargets[i].x;
+                    particles[i].targetY = newTargets[i].y;
+                } else {
+                    particles.push(new Particle(newTargets[i].x, newTargets[i].y));
+                }
+            }
+            particles.length = newTargets.length;
+        }
+
+        /**
+         * WINDOW RESIZE HANDLING
+         */
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            
+            ctx.fillStyle = '#050508';
+            ctx.fillRect(0, 0, width, height);
+            
+            updateSwarm(currentNumber === 0 ? "GOOGLE I/O 2026" : currentNumber.toString());
+        }
+
+        /**
+         * ANIMATION LOOP
+         */
+        function animate() {
+            // --- PERFORMANCE INJECTION: HARD CLEAR ---
+            // Removed motion blur (fillRect) and expensive composite operations (lighter)
+            ctx.clearRect(0, 0, width, height);
+            
+            // Re-draw background since clearRect makes it transparent and our 
+            // main body background is what we want, but filling is safer if composite changes occur
+            ctx.fillStyle = '#050508';
+            ctx.fillRect(0, 0, width, height);
+
+            let totalDisplacement = 0;
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].update();
+                particles[i].draw();
+
+                // Calculate displacement for the audio engine (Math.sqrt required here)
+                const dx = particles[i].targetX - particles[i].x;
+                const dy = particles[i].targetY - particles[i].y;
+                totalDisplacement += Math.sqrt(dx * dx + dy * dy);
+            }
+
+            const avgDisplacement = particles.length > 0 ? (totalDisplacement / particles.length) : 0;
+            const energy = Math.min(avgDisplacement / 300, 1.0);
+            audioEngine.update(energy);
+
+            requestAnimationFrame(animate);
+        }
+
+        /**
+         * EVENT LISTENERS (Mouse & Touch)
+         */
+        function updatePointer(e) {
+            pointer.isActive = true;
+            if (e.touches) {
+                pointer.x = e.touches[0].clientX;
+                pointer.y = e.touches[0].clientY;
+            } else {
+                pointer.x = e.clientX;
+                pointer.y = e.clientY;
+            }
+        }
+
+        function disablePointer() {
+            pointer.isActive = false;
+            pointer.x = -1000; 
+            pointer.y = -1000;
+        }
+
+        window.addEventListener('resize', resize);
+        window.addEventListener('mousemove', updatePointer);
+        window.addEventListener('mouseleave', disablePointer);
+        window.addEventListener('touchstart', updatePointer, { passive: true });
+        window.addEventListener('touchmove', updatePointer, { passive: true });
+        window.addEventListener('touchend', disablePointer);
+
+        /**
+         * BOOTSTRAP
+         */
+        resize(); 
+        animate(); 
+
+        function advanceCountdown() {
+            audioEngine.start(); 
+            
+            if (currentNumber > 1) {
+                currentNumber--;
+                updateSwarm(currentNumber.toString());
+            } else if (currentNumber === 1) {
+                currentNumber = 0; 
+                updateSwarm("GOOGLE I/O 2026");
+                document.querySelector('.ui-overlay').innerText = "Welcome to the future";
+            }
+        }
+
+        window.addEventListener('keydown', advanceCountdown);
+        window.addEventListener('click', advanceCountdown); 
+        window.focus();
+
+    </script>
+</body>
+</html>
