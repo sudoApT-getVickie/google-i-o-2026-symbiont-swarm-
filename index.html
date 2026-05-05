@@ -140,10 +140,10 @@
                 this.vx = 0;
                 this.vy = 0;
                 
-                // --- PERFORMANCE INJECTION: STATIC COLOR ---
-                // Pre-calculate flat color once instead of string interpolation every frame.
-                const hue = Math.floor(Math.random() * 40) + 180;
-                this.color = `hsl(${hue}, 100%, 60%)`;
+                // --- GOOGLE BRANDING INJECTION ---
+                // Official Google Developer Colors: Blue, Red, Yellow, Green
+                const googleColors = ['#4285F4', '#EA4335', '#FBBC04', '#34A853'];
+                this.color = googleColors[Math.floor(Math.random() * googleColors.length)];
                 
                 // --- TYPOGRAPHY INJECTION: INCREASED VOLUME ---
                 // Increased baseline size from ~1.0 to ~3.0 to bridge sparse pixels
