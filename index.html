@@ -144,7 +144,10 @@
                 // Pre-calculate flat color once instead of string interpolation every frame.
                 const hue = Math.floor(Math.random() * 40) + 180;
                 this.color = `hsl(${hue}, 100%, 60%)`;
-                this.size = Math.random() * 1.5 + 0.5;
+                
+                // --- TYPOGRAPHY INJECTION: INCREASED VOLUME ---
+                // Increased baseline size from ~1.0 to ~3.0 to bridge sparse pixels
+                this.size = Math.random() * 1.5 + 2.5; 
             }
 
             update() {
@@ -211,7 +214,9 @@
             osCanvas.height = height;
 
             let fontSize = Math.min(width, height) * 0.8;
-            osCtx.font = `bold ${fontSize}px sans-serif`;
+            
+            // --- TYPOGRAPHY INJECTION: ULTRA-HEAVY FONT ---
+            osCtx.font = `900 ${fontSize}px "Arial Black", Arial, sans-serif`;
             
             const maxTextWidth = width * 0.9; 
             let textMetrics = osCtx.measureText(text);
@@ -219,13 +224,21 @@
             if (textMetrics.width > maxTextWidth) {
                 const scalingFactor = maxTextWidth / textMetrics.width;
                 fontSize = fontSize * scalingFactor;
-                osCtx.font = `bold ${fontSize}px sans-serif`; 
+                osCtx.font = `900 ${fontSize}px "Arial Black", Arial, sans-serif`; 
             }
 
             osCtx.fillStyle = 'white';
             osCtx.textAlign = 'center';
             osCtx.textBaseline = 'middle';
             osCtx.fillText(text, width / 2, height / 2);
+            
+            // --- TYPOGRAPHY INJECTION: THICKEN FOOTPRINT ---
+            // Draw a thick stroke around the text to artificially widen the sampling area
+            osCtx.strokeStyle = 'white';
+            osCtx.lineWidth = 6;
+            osCtx.lineJoin = 'round'; // Smooths sharp corners
+            osCtx.strokeText(text, width / 2, height / 2);
+            // ----------------------------------------------
 
             const imageData = osCtx.getImageData(0, 0, width, height);
             const data = imageData.data;
